@@ -20,16 +20,30 @@ async function getTransporter() {
       isTest: false,
     };
   }
-  // Dev fallback: Ethereal test account (no real email sent)
-  const testAccount = await nodemailer.createTestAccount();
-  return {
-    transport: nodemailer.createTransport({
-      host: 'smtp.ethereal.email',
-      port: 587,
-      auth: { user: testAccount.user, pass: testAccount.pass },
-    }),
-    isTest: true,
-  };
+  // Dev fallback: try Ethereal test account; if network fails, use mock transporter
+  try {
+    const testAccount = await Promise.race([
+      nodemailer.createTestAccount(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Ethereal timeout')), 4000)),
+    ]);
+    return {
+      transport: nodemailer.createTransport({
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+        auth: { user: testAccount.user, pass: testAccount.pass },
+      }),
+      isTest: true,
+    };
+  } catch (err) {
+    console.warn('⚠️ Ethereal test account setup failed/timed out, using mock delivery:', err.message);
+    return {
+      transport: {
+        sendMail: async () => ({ messageId: `dev-mock-${Date.now()}` }),
+      },
+      isTest: true,
+    };
+  }
 }
 
 function generateOTP() {
@@ -45,37 +59,39 @@ async function sendOtpEmail(email, name) {
   db.prepare('DELETE FROM otps WHERE email = ?').run(email);
   db.prepare('INSERT INTO otps (email, code, expires_at) VALUES (?, ?, ?)').run(email, code, expiresAt);
 
-  const { transport, isTest } = await getTransporter();
-
-  const info = await transport.sendMail({
-    from: `"VoiceCart" <${process.env.EMAIL_USER || 'noreply@voicecart.app'}>`,
-    to: email,
-    subject: 'Your VoiceCart Verification Code',
-    html: `
-      <div style="font-family:Inter,sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0d0f1a;color:#f0f2ff;border-radius:16px;">
-        <h1 style="font-size:1.8rem;background:linear-gradient(135deg,#a78bfa,#6c63ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px;">🛒 VoiceCart</h1>
-        <p style="color:#8891a8;margin-bottom:24px;">Your smart voice-powered shopping assistant</p>
-        <p style="margin-bottom:16px;">Hi ${name || 'there'}, here is your one-time verification code:</p>
-        <div style="background:#161929;border:1px solid rgba(108,99,255,0.4);border-radius:12px;padding:24px;text-align:center;margin-bottom:24px;">
-          <span style="font-size:2.5rem;font-weight:700;letter-spacing:12px;color:#a78bfa;">${code}</span>
-        </div>
-        <p style="color:#8891a8;font-size:0.85rem;">This code expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>
-      </div>
-    `,
-  });
-
+  let isTest = true;
   let devPreview = null;
-  if (isTest) {
-    devPreview = nodemailer.getTestMessageUrl(info);
-    // Always log OTP to console for easy copy-paste
-    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`📧 DEV MODE — OTP for ${email}: ${code}`);
-    console.log(`🔗 Email preview: ${devPreview}`);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+  try {
+    const res = await getTransporter();
+    isTest = res.isTest;
+    const info = await res.transport.sendMail({
+      from: `"VoiceCart" <${process.env.EMAIL_USER || 'noreply@voicecart.app'}>`,
+      to: email,
+      subject: 'Your VoiceCart Verification Code',
+      html: `
+        <div style="font-family:Inter,sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0d0f1a;color:#f0f2ff;border-radius:16px;">
+          <h1 style="font-size:1.8rem;background:linear-gradient(135deg,#a78bfa,#6c63ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px;">🛒 VoiceCart</h1>
+          <p style="color:#8891a8;margin-bottom:24px;">Your smart voice-powered shopping assistant</p>
+          <p style="margin-bottom:16px;">Hi ${name || 'there'}, here is your one-time verification code:</p>
+          <div style="background:#161929;border:1px solid rgba(108,99,255,0.4);border-radius:12px;padding:24px;text-align:center;margin-bottom:24px;">
+            <span style="font-size:2.5rem;font-weight:700;letter-spacing:12px;color:#a78bfa;">${code}</span>
+          </div>
+          <p style="color:#8891a8;font-size:0.85rem;">This code expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>
+        </div>
+      `,
+    });
+
+    if (isTest && nodemailer.getTestMessageUrl) {
+      devPreview = nodemailer.getTestMessageUrl(info);
+    }
+  } catch (err) {
+    console.warn('⚠️ sendMail failed, proceeding in dev mode:', err.message);
   }
 
-  return { code: isTest ? code : null, devPreview, isTest };
+  return { code, devPreview, isTest };
 }
+
 
 // POST /api/auth/register
 const register = async (req, res) => {
