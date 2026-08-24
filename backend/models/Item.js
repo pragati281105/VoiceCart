@@ -24,7 +24,7 @@ function create({ name, quantity = 1, unit = '', userId }) {
   ).get(name, userId || null);
 
   if (existing) {
-    db.prepare('UPDATE history SET frequency = frequency + 1, last_added = datetime("now") WHERE id = ?')
+    db.prepare("UPDATE history SET frequency = frequency + 1, last_added = datetime('now') WHERE id = ?")
       .run(existing.id);
   } else {
     db.prepare('INSERT INTO history (name, user_id) VALUES (?, ?)').run(name, userId || null);
