@@ -19,13 +19,11 @@ export default function RegisterPage() {
     if (form.password !== form.confirm) return setError('Passwords do not match');
     setLoading(true);
     try {
-      const data = await register(form.email, form.password, form.name);
-      navigate('/verify-otp', {
+      await register(form.email, form.password, form.name);
+      navigate('/login', {
         state: {
-          email:      data.email,
-          devOtp:     data.devOtp     ?? null,
-          devPreview: data.devPreview ?? null,
-          isDevMode:  data.isDevMode  ?? false,
+          registered: true,
+          email: form.email,
         },
       });
     } catch (err) {
@@ -34,7 +32,6 @@ export default function RegisterPage() {
       setLoading(false);
     }
   };
-
 
   return (
     <div className="auth-page">
@@ -103,9 +100,10 @@ export default function RegisterPage() {
           {error && <p className="auth-error">{error}</p>}
 
           <button id="reg-submit" type="submit" className="auth-btn" disabled={loading}>
-            {loading ? <span className="auth-spinner" /> : 'Create Account & Send OTP'}
+            {loading ? <span className="auth-spinner" /> : 'Create Account'}
           </button>
         </form>
+
 
         <p className="auth-footer">
           Already have an account? <Link to="/login" className="auth-link">Sign in</Link>

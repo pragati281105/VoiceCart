@@ -101,80 +101,20 @@ const register = async (req, res) => {
 
   try {
     const normalEmail = email.toLowerCase().trim();
-    const existing = db.prepare('SELECT id, is_verified FROM users WHERE email = ?').get(normalEmail);
-    if (existing?.is_verified) return res.status(409).json({ error: 'Email already registered. Please log in.' });
+    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(normalEmail);
+    if (existing) return res.status(409).json({ error: 'Email already registered. Please log in.' });
 
     const hash = await bcrypt.hash(password, 10);
-
-    if (existing) {
-      db.prepare('UPDATE users SET password_hash=?, name=? WHERE id=?').run(hash, name || '', existing.id);
-    } else {
-      db.prepare('INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?)').run(normalEmail, hash, name || '');
-    }
-
-    const { code, devPreview, isTest } = await sendOtpEmail(normalEmail, name);
+    db.prepare('INSERT INTO users (email, password_hash, name, is_verified) VALUES (?, ?, ?, 1)').run(normalEmail, hash, name || '');
 
     res.json({
-      message: isTest
-        ? 'Dev mode: OTP shown below (no real email sent)'
-        : `Verification code sent to ${normalEmail}`,
+      message: 'Account created successfully! Please sign in.',
       email: normalEmail,
-      // Only included in dev/test mode — never exposed in production
-      devOtp: code,
-      devPreview,
-      isDevMode: isTest,
     });
   } catch (e) {
     console.error('Register error:', e);
     res.status(500).json({ error: 'Registration failed: ' + e.message });
   }
-};
-
-// POST /api/auth/resend-otp
-const resendOtp = async (req, res) => {
-  const { email } = req.body;
-  if (!email?.trim()) return res.status(400).json({ error: 'Email required' });
-
-  const normalEmail = email.toLowerCase().trim();
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(normalEmail);
-  if (!user) return res.status(404).json({ error: 'No account found for that email. Please register.' });
-  if (user.is_verified) return res.status(409).json({ error: 'Email is already verified. Please log in.' });
-
-  try {
-    const { code, devPreview, isTest } = await sendOtpEmail(normalEmail, user.name);
-    res.json({
-      message: isTest ? 'Dev mode: new OTP shown below' : `New code sent to ${normalEmail}`,
-      devOtp: code,
-      devPreview,
-      isDevMode: isTest,
-    });
-  } catch (e) {
-    console.error('Resend OTP error:', e);
-    res.status(500).json({ error: 'Could not resend OTP: ' + e.message });
-  }
-};
-
-// POST /api/auth/verify-otp
-const verifyOtp = (req, res) => {
-  const { email, code } = req.body;
-  if (!email || !code) return res.status(400).json({ error: 'Email and OTP required' });
-
-  const normalEmail = email.toLowerCase().trim();
-  const otp = db.prepare('SELECT * FROM otps WHERE email = ? AND code = ?').get(normalEmail, code.trim());
-
-  if (!otp) return res.status(400).json({ error: 'Invalid OTP. Please check the code and try again.' });
-  if (Date.now() > otp.expires_at) {
-    db.prepare('DELETE FROM otps WHERE id = ?').run(otp.id);
-    return res.status(400).json({ error: 'OTP expired. Click "Resend OTP" to get a new one.' });
-  }
-
-  db.prepare('UPDATE users SET is_verified = 1 WHERE email = ?').run(normalEmail);
-  db.prepare('DELETE FROM otps WHERE email = ?').run(normalEmail);
-
-  const user = db.prepare('SELECT id, email, name FROM users WHERE email = ?').get(normalEmail);
-  const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
-
-  res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
 };
 
 // POST /api/auth/login
@@ -185,11 +125,6 @@ const login = async (req, res) => {
   try {
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase().trim());
     if (!user) return res.status(401).json({ error: 'Invalid email or password' });
-    if (!user.is_verified) return res.status(403).json({
-      error: 'Email not verified yet.',
-      needsVerification: true,
-      email: user.email,
-    });
 
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
@@ -200,6 +135,7 @@ const login = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
 
 // GET /api/auth/me
 const getMe = (req, res) => {
