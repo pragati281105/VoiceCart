@@ -1,8 +1,10 @@
 import axios from 'axios';
 
-// On Vercel the frontend and backend share the same domain, so use relative /api.
-// Locally, point at the dev backend on port 5000.
-const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// On Vercel (or any non-localhost host), default to relative /api so requests hit serverless function.
+// Locally on dev server, default to http://localhost:5000/api.
+const isProdDomain = typeof window !== 'undefined' && !['localhost', '127.0.0.1'].includes(window.location.hostname);
+const BASE = import.meta.env.VITE_API_URL || (isProdDomain ? '/api' : 'http://localhost:5000/api');
+
 
 // ── Public instance (no auth needed) ──
 export const api = axios.create({ baseURL: BASE });
