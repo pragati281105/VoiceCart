@@ -1,6 +1,6 @@
 # VoiceCart – Voice Command Shopping Assistant
 
-A smart, voice-first shopping list manager built with React + Node.js. Talk to it and it manages your list.
+A smart, voice-first shopping list manager built with React + Node.js. Talk to it and it manages your list. try it here -https://voicecart-psi.vercel.app/login
 
 ## Tech Stack
 - **Frontend:** React (Vite), Web Speech API, Axios
