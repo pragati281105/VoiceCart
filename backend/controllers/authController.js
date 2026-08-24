@@ -36,8 +36,14 @@ const login = async (req, res) => {
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
   try {
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase().trim());
+    const normalEmail = email.toLowerCase().trim();
+    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(normalEmail);
     if (!user) return res.status(401).json({ error: 'Invalid email or password' });
+
+    // Auto-verify legacy users if needed
+    if (!user.is_verified) {
+      db.prepare('UPDATE users SET is_verified = 1 WHERE id = ?').run(user.id);
+    }
 
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
@@ -48,6 +54,7 @@ const login = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
 
 // GET /api/auth/me
 const getMe = (req, res) => {
